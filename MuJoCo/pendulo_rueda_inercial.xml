@@ -1,0 +1,58 @@
+<mujoco model="pendulo_rueda_inercial">
+  
+  <compiler angle="radian"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="RK4"/>
+
+  <default>
+    <joint damping="0.001" frictionloss="0.0005"/>
+    <geom rgba="0.75 0.75 0.75 1"/>
+  </default>
+
+  <visual>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.6 0.6 0.6"/>
+    <global offwidth="800" offheight="600"/>
+  </visual>
+
+  <worldbody>
+    <light pos="0 -1 2" dir="0 0.5 -1" diffuse="0.9 0.9 0.9"/>
+    <camera name="fija" pos="0 -0.9 -0.15" xyaxes="1 0 0 0 0 1"/>
+
+    <!-- Soporte fijo del pivote -->
+    <geom name="soporte" type="cylinder" size="0.03 0.05" pos="0 0 0"
+          rgba="127 127 127 1" contype="0" conaffinity="0"/>
+
+    <!-- Brazo del péndulo, cuelga desde el pivote en (0,0,0) -->
+    <body name="pendulo" pos="0 0 0">
+      <joint name="pendulo_joint" type="hinge" axis="0 1 0" pos="0 0 0"/>
+
+      <!-- Barra: del pivote (0,0,0) hacia abajo, longitud 0.30 m -->
+      <geom name="barra" type="capsule" fromto="0 0 0 0 0 -0.30" size="0.012"
+            mass="0.25" rgba="255 0 0 1" contype="0" conaffinity="0"/>
+
+      <!-- Rueda inercial en la punta del brazo -->
+      <body name="rueda" pos="0 0 -0.30">
+        <joint name="rueda_joint" type="hinge" axis="0 1 0" pos="0 0 0"/>
+        <!-- Disco delgado; su eje de simetria coincide con el eje de giro (Y) -->
+        <geom name="disco" type="cylinder" fromto="0 -0.014 0 0 0.014 0"
+              size="0.08" mass="0.35" rgba="0 255 0 1"
+              contype="0" conaffinity="0"/>
+        <!-- Marca visual para notar que la rueda gira -->
+        <geom name="marca" type="box" size="0.06 0.016 0.006"
+              pos="0 0 0.04" rgba="0 0 255 1" contype="0" conaffinity="0"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Motor de torque directo sobre la rueda. Unidad: N*m (gear=1) -->
+    <motor name="motor_rueda" joint="rueda_joint" ctrllimited="true"
+           ctrlrange="-1.0 1.0" gear="1"/>
+  </actuator>
+
+  <sensor>
+    <jointpos name="pendulo_pos" joint="pendulo_joint"/>
+    <jointvel name="pendulo_vel" joint="pendulo_joint"/>
+    <jointvel name="rueda_vel" joint="rueda_joint"/>
+  </sensor>
+</mujoco>
