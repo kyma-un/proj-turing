@@ -16,110 +16,358 @@ macro bind(def, element)
     #! format: on
 end
 
-# ╔═╡ 5313362e-3ccd-41bf-9039-64dcf620062d
-using GLMakie, Symbolics, DifferentialEquations, ModelingToolkit, Nemo, Unitful, Latexify
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000003
+using GLMakie, Symbolics, OrdinaryDiffEq, LinearAlgebra, Latexify, PlutoUI
 
-# ╔═╡ 91121ec6-93a2-47dc-bc6f-5af84dcef3a0
-using PlutoUI
-
-# ╔═╡ 45c3a5e9-32ee-438f-ab3f-c6c7a17832b8
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000001
 md"""
-# Modelo dinámico pendulo inercial invertido 
+# Modelo dinámico del péndulo inercial invertido
+**Autores**: Andrés Morales Martínez y Julian Andrés Pinzón 
+
+Brazo (ángulo absoluto ``\theta`` medido desde la vertical) con una rueda de inercia en el extremo (ángulo ``\phi`` **relativo** al brazo), accionada por un motor que aplica un par ``\tau`` entre brazo y rueda.
+
 """
 
-# ╔═╡ 5c367436-3b4e-4cf9-b3ab-51aff3911925
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000004
 PlutoUI.TableOfContents()
 
-# ╔═╡ 4f09226e-d295-4821-b64a-ff3c348c7c89
-PlutoUI.LocalResource("../image.png")
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000005
+PlutoUI.LocalResource("./image.png")
 
-# ╔═╡ 0ddbc496-6c4b-4f5c-865e-ba04c95c9486
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000006
 md"""
-Parámetros físicos del modelo 
+## 1. Parámetros físicos
 """
 
-# ╔═╡ 7bce4515-1570-4365-8921-dcf76e14b8c8
-begin 
-	# Masas 
-	# m_l = 0.567# u"kg"; 
-	# m_w = 0.341# u"kg"; 
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000007
+@variables m_l m_w l_l l_w I_l I_w g τ
 
-	# Longitudes 
-	# l_l = 0.133# u"m"; 
-	# l_w = 0.221# u"m";
-	
-	# Inercias 
-	# I_l = 0.0045# u"kg*m^2"; 
-	# I_w = 0.0024# u"kg*m^2"; 
-end 
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000008
+params = Dict(
+	m_l => 0.567,    # kg     masa del brazo
+	m_w => 0.341,    # kg     masa de la rueda
+	l_l => 0.133,    # m      pivote → CM del brazo
+	l_w => 0.221,    # m      pivote → centro de la rueda
+	I_l => 0.0045,   # kg·m²  inercia del brazo respecto a su CM
+	I_w => 0.0024,   # kg·m²  inercia de la rueda respecto a su eje
+	g   => 9.81,     # m/s²
+)
 
-# ╔═╡ deed1815-9d9c-4297-9960-308b6b251cf8
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000010
 md"""
-## Planteamiento Lagrangiano 
+## 2. Planteamiento Lagrangiano
 """
 
-# ╔═╡ 44892d72-4c9f-48ea-ae39-0ed9ac7f1d12
-@syms θ ϕ dθ dϕ I_l I_w m_w m_l L_w R g
-
-# ╔═╡ ffce79ac-491b-45e7-b58f-15407113b2ec
-T = 1/2 * I_l * dθ^2 + 1/2 * I_w * (dϕ + dθ)^2 + 1/2 * m_w * (dθ * L_w^2) 
-
-# ╔═╡ 64252903-b282-4f38-8e80-fd85e1bba53a
-V = 1/2 * cos(θ) * m_l * g * L_w + m_w * L_w * cos(θ) * g
-
-# ╔═╡ a17d113b-fcd4-4d9a-8f31-905c07ea9a7b
-# Lagrangiano 
-L = T - V 
-
-# ╔═╡ aac92d77-96d9-49a6-8ca3-4bc43417bcf0
+# ╔═╡ dc2f6187-6ec4-4a3a-8ecf-ba4a7732b746
 md"""
-Definimos los momentos canónicos conjugados: 
-
-$$p_i = \frac{\partial L}{\partial \dot{q_i}}$$
+Definimos las variables como independientes, para un planteamiento numérico. Así encontramos las expresiones simbolicas, y las resolvemos con ODESolver. 
 """
 
-# ╔═╡ c525b07e-a58a-469e-9ed6-19e009455389
-Dϕ = Differential(dϕ)
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000011
+@variables θ ϕ θd ϕd θdd ϕdd pθ pϕ
 
-# ╔═╡ a7d27253-047f-4de3-a677-805a9cd05316
-Dθ = Differential(dθ)
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000012
+# Energía cinética: brazo (rotación pura) + traslación de la rueda + giro absoluto de la rueda (ϕ̇ + θ̇)
+T = (I_l + m_l*l_l^2 + m_w*l_w^2) * θd^2 / 2 + I_w * (ϕd + θd)^2 / 2
 
-# ╔═╡ 8db0e249-084f-4cff-ad97-5afb2931f5d3
-pθ = Dθ()
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000013
+# Energía potencial (θ = 0 es la posición invertida/vertical)
+V = (m_l*l_l + m_w*l_w) * g * cos(θ)
 
-# ╔═╡ 16664cd6-8d52-4160-a15c-efadf0b214cc
-@bind K PlutoUI.Slider(1:0.1:10, show_value= true)
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000014
+Lag = T - V
 
-# ╔═╡ 0d80a7f5-bd7d-4580-ad5f-05061bd1daeb
-t = 0:0.1:10 
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000015
+md"""
+### Ecuaciones de Euler-Lagrange
 
-# ╔═╡ 1c518b48-85f2-4fdc-ba62-7eea4671fc36
-x = sin.(K * t)
+$$\frac{d}{dt}\frac{\partial \mathcal L}{\partial \dot q_i} - \frac{\partial \mathcal L}{\partial q_i} = Q_i, \qquad Q=(0,\;\tau)$$
 
-# ╔═╡ 35a76c59-e30b-4dd3-88f3-0bfec622960f
-lines(t, x)
+"""
+
+# ╔═╡ fa8f6b56-1de1-41be-96c5-245e7e1a6385
+
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000016
+begin
+	q = [θ, ϕ]
+	v = [θd, ϕd]
+	a = [θdd, ϕdd]
+	Q = [0, τ]
+
+	pL    = Symbolics.gradient(Lag, v)          # ∂L/∂q̇  (momentos canónicos)
+	dLdq  = Symbolics.gradient(Lag, q)          # ∂L/∂q
+	# d/dt(∂L/∂q̇) = (∂²L/∂q̇∂q)·q̇ + (∂²L/∂q̇∂q̇)·q̈
+	ddt_pL = Symbolics.jacobian(pL, q) * v + Symbolics.jacobian(pL, v) * a
+	EL_res = simplify.(ddt_pL - dLdq - Q)
+	EL_res .~ 0
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000017
+# Aceleraciones: se despeja q̈ del sistema (lineal en q̈)
+a_sol = simplify.(Symbolics.solve_for(EL_res .~ 0, a))
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000020
+md"""
+## 3. Planteamiento Hamiltoniano
+
+Momentos canónicos conjugados:
+
+$$p_i = \frac{\partial \mathcal L}{\partial \dot q_i}$$
+
+Se invierte ``p = p(q,\dot q)`` para obtener ``\dot q = \dot q(q,p)`` y luego ``H = \sum_i p_i\dot q_i - \mathcal L``.
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000021
+begin
+	pmom  = [pθ, pϕ]
+	v_sol = simplify.(Symbolics.solve_for(pmom .~ pL, v))   # q̇(q,p)
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000022
+# Transformada de Legendre
+H = simplify(substitute(sum(pmom .* v) - Lag, Dict(θd => v_sol[1], ϕd => v_sol[2])))
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000025
+md"""
+### Ecuaciones de Hamilton
+
+$$\dot q_i = \frac{\partial H}{\partial p_i}, \qquad \dot p_i = -\frac{\partial H}{\partial q_i} + Q_i$$
+
+Como ``H`` no depende de ``\phi`` (coordenada cíclica), ``\dot p_\phi = \tau``: con ``\tau=0`` el momento de la rueda se conserva.
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000026
+begin
+	dq_H = simplify.(Symbolics.gradient(H, pmom))         #  q̇ =  ∂H/∂p
+	dp_H = simplify.(-Symbolics.gradient(H, q) + Q)       #  ṗ = -∂H/∂q + Q
+	(q̇ = dq_H, ṗ = dp_H)
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000027
+md"""
+## 4. Funciones numéricas
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000028
+begin
+	subsp(exprs) = [substitute(e, params) for e in exprs]
+
+	# Lagrange:  u = [θ, ϕ, θ̇, ϕ̇],  entrada extra τ
+	f_lag   = build_function(subsp(vcat(v, a_sol)), [θ, ϕ, θd, ϕd, τ]; expression = Val{false})[1]
+	# Hamilton:  u = [θ, ϕ, pθ, pϕ], entrada extra τ
+	f_ham   = build_function(subsp(vcat(dq_H, dp_H)), [θ, ϕ, pθ, pϕ, τ]; expression = Val{false})[1]
+	# Auxiliares
+	f_vel_H = build_function(subsp(dq_H), [θ, ϕ, pθ, pϕ]; expression = Val{false})[1]   # (θ̇, ϕ̇) desde (q,p)
+	f_p     = build_function(subsp(pL), [θ, ϕ, θd, ϕd]; expression = Val{false})[1]       # (pθ, pϕ) desde (q,q̇)
+	f_H     = build_function(substitute(H, params), [θ, ϕ, pθ, pϕ]; expression = Val{false})
+	nothing
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000029
+md"""
+Control de full state- feedback  con ubicacion de polos Ackermann: ``\tau=-Kx``.
+"""
+
+# ╔═╡ c8f1197f-0b88-4b9e-93c7-1b469cd844aa
+@bind pole_1 PlutoUI.NumberField()
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000030
+begin
+	Jn   = params[I_l] + params[m_l]*params[l_l]^2 + params[m_w]*params[l_w]^2
+	Mgl  = (params[m_l]*params[l_l] + params[m_w]*params[l_w]) * params[g]
+	w0sq = Mgl / Jn                                   # ω₀² del péndulo invertido
+
+	A0 = [0.0 1.0 0.0; w0sq 0.0 0.0; 0.0 0.0 0.0]
+	B0 = [0.0, -1/Jn, 1/params[I_w]]
+
+	polos_deseados = [pole_1, -10.0, -12.0]
+	Ctrb = hcat(B0, A0*B0, A0*A0*B0)
+	φA   = prod(A0 - λ*I for λ in polos_deseados)
+	K    = vec([0.0 0.0 1.0] * inv(Ctrb) * φA)        # τ = -K·[θ, θ̇, ω]
+
+	(K = K, polos_lazo_cerrado = eigvals(A0 - B0*K'), polo_inestable_abierto = sqrt(w0sq))
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000031
+begin
+	function rhs_lag!(du, u, ctrl, t)
+		τ_ = ctrl ? -(K[1]*u[1] + K[2]*u[3] + K[3]*(u[3] + u[4])) : 0.0
+		du .= f_lag([u; τ_])
+		return nothing
+	end
+
+	function rhs_ham!(du, u, ctrl, t)
+		w  = f_vel_H(u)                               # (θ̇, ϕ̇) a partir de (q,p)
+		τ_ = ctrl ? -(K[1]*u[1] + K[2]*w[1] + K[3]*(w[1] + w[2])) : 0.0
+		du .= f_ham([u; τ_])
+		return nothing
+	end
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000032
+md"""
+## 5. Simulación
+
+**Condiciones iniciales**
+
+θ(0) [rad]: $(@bind θ0 PlutoUI.Slider(-0.6:0.05:0.6, default = 0.3, show_value = true))
+
+ϕ̇(0) [rad/s] (rueda respecto al brazo): $(@bind ϕd0 PlutoUI.Slider(-20:1:20, default = 0, show_value = true))
+
+Tiempo final [s]: $(@bind tf PlutoUI.Slider(0.5:0.5:5, default = 2.0, show_value = true))
+
+Control activo (τ = −Kx): $(@bind ctrl_on PlutoUI.CheckBox(default = true))
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000033
+begin
+	ts   = range(0, tf, length = 1000)
+	u0_L = [θ0, 0.0, 0.0, Float64(ϕd0)]            # (θ, ϕ, θ̇, ϕ̇)
+	p0   = f_p(u0_L)                                # mismos datos iniciales en variables canónicas
+	pϕ0  = p0[2]
+	u0_H = [θ0, 0.0, p0[1], p0[2]]                  # (θ, ϕ, pθ, pϕ)
+
+	sol_L = solve(ODEProblem(rhs_lag!, u0_L, (0.0, tf), ctrl_on), Vern9(); abstol = 1e-12, reltol = 1e-12)
+	sol_H = solve(ODEProblem(rhs_ham!, u0_H, (0.0, tf), ctrl_on), Vern9(); abstol = 1e-12, reltol = 1e-12)
+
+	XL = Array(sol_L(ts))                                         # 4×N: θ, ϕ, θ̇, ϕ̇
+	XH = Array(sol_H(ts))                                         # 4×N: θ, ϕ, pθ, pϕ
+	VH = reduce(hcat, [f_vel_H(c) for c in eachcol(XH)])          # 2×N: θ̇, ϕ̇ desde Hamilton
+	PL = reduce(hcat, [f_p(c) for c in eachcol(XL)])              # 2×N: pθ, pϕ desde Lagrange
+	τ_t = ctrl_on ? [-dot(K, [x[1], x[3], x[3] + x[4]]) for x in eachcol(XL)] : zeros(length(ts))
+	nothing
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000034
+md"""
+## 6. Coordenadas: Lagrange vs Hamilton
+
+Línea sólida azul = integración de las ecuaciones de Euler-Lagrange; línea roja discontinua = integración de las ecuaciones de Hamilton (con ``\dot q`` recuperado de ``\partial H/\partial p``). Abajo, el error absoluto entre ambas (debería estar al nivel de la tolerancia del integrador).
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000035
+let
+	fig = Figure(size = (1100, 900))
+
+	function par!(pos, ylabel, yL, yH)
+		ax = Axis(pos, xlabel = "t [s]", ylabel = ylabel)
+		lines!(ax, ts, yL, color = :royalblue, linewidth = 4, label = "Lagrange")
+		lines!(ax, ts, yH, color = :crimson, linewidth = 2, linestyle = :dash, label = "Hamilton")
+		return ax
+	end
+
+	ax1 = par!(fig[1, 1], "θ [rad]",    XL[1, :], XH[1, :])
+	ax2 = par!(fig[1, 2], "ϕ [rad]",    XL[2, :], XH[2, :])
+	ax3 = par!(fig[2, 1], "dθ̇ [rad/s]",  XL[3, :], VH[1, :])
+	ax4 = par!(fig[2, 2], "dϕ̇ [rad/s]",  XL[4, :], VH[2, :])
+	axislegend(ax1, position = :rt)
+
+	XHc = vcat(XH[1:2, :], VH)                         # (θ, ϕ, θ̇, ϕ̇) según Hamilton
+	axe = Axis(fig[3, 1:2], xlabel = "t [s]", ylabel = "|Lagrange − Hamilton|", yscale = log10,
+	           title = "Error entre formulaciones")
+	for (k, nombre) in enumerate(["θ", "ϕ", "θ̇", "ϕ̇"])
+		err = max.(abs.(XL[k, :] .- XHc[k, :]), 1e-18)
+		lines!(axe, ts, err, label = nombre, linewidth = 2)
+	end
+	axislegend(axe, position = :rb, orientation = :horizontal)
+	fig
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000036
+md"""
+### Momentos, energía y par
+
+``H`` solo es constante cuando ``\tau = 0`` (desmarca el control para verificarlo). Con control, ``\dot H = \tau\,\dot\phi``.
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000037
+let
+	fig = Figure(size = (1100, 700))
+
+	function par!(pos, ylabel, yL, yH)
+		ax = Axis(pos, xlabel = "t [s]", ylabel = ylabel)
+		lines!(ax, ts, yL, color = :royalblue, linewidth = 4, label = "Lagrange (p = ∂L/∂q̇)")
+		lines!(ax, ts, yH, color = :crimson, linewidth = 2, linestyle = :dash, label = "Hamilton")
+		return ax
+	end
+
+	ax1 = par!(fig[1, 1], "pθ [kg·m²/s]", PL[1, :], XH[3, :])
+	ax2 = par!(fig[1, 2], "pϕ [kg·m²/s]", PL[2, :], XH[4, :])
+	axislegend(ax1, position = :rt)
+
+	HL = [f_H([x[1], x[2], pc[1], pc[2]]) for (x, pc) in zip(eachcol(XL), eachcol(PL))]
+	HH = [f_H(collect(c)) for c in eachcol(XH)]
+	ax3 = par!(fig[2, 1], "H [J]", HL, HH)
+
+	ax4 = Axis(fig[2, 2], xlabel = "t [s]", ylabel = "τ [N·m]")
+	lines!(ax4, ts, τ_t, color = :black, linewidth = 2)
+	fig
+end
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000038
+md"""
+## 7. Phase portrait
+
+* **A** — Lazo abierto (``\tau=0``), plano ``(\theta,\dot\theta)``: campo vectorial + trayectorias. Como ``J\ddot\theta = M_{gl}\sin\theta``, no depende de ``\omega``: punto silla en ``\theta=0`` (invertido, rojo) y centro en ``\theta=\pi`` (colgado, verde).
+* **B** — Lazo cerrado: trayectorias en ``(\theta,\dot\theta)`` convergiendo al equilibrio invertido (con la rueda inicialmente en reposo respecto al brazo).
+* **C** — Espacio de fase Hamiltoniano ``(\theta,p_\theta)`` con ``p_\phi`` fijo (``\tau=0``): las curvas de nivel de ``H`` *son* las órbitas; en rojo la separatriz.
+"""
+
+# ╔═╡ 6a1f0c00-0000-4000-8000-000000000039
+let
+	fig = Figure(size = (1500, 500))
+
+	# --- A: lazo abierto -------------------------------------------------
+	axA = Axis(fig[1, 1], title = "A · Lazo abierto (τ = 0)", xlabel = "θ [rad]", ylabel = "θ̇ [rad/s]")
+	streamplot!(axA, pt -> Point2f(pt[2], w0sq * sin(pt[1])), -π..π, -10..10, colormap = :Blues)
+	for θi in range(-3, 3, length = 7), θdi in (-8.0, -4.0, 4.0, 8.0)
+		s = solve(ODEProblem(rhs_lag!, [θi, 0.0, θdi, 0.0], (0.0, 1.0), false), Tsit5();
+		          abstol = 1e-9, reltol = 1e-9)
+		lines!(axA, s[1, :], s[3, :], color = (:black, 0.45), linewidth = 1)
+	end
+	scatter!(axA, [0.0], [0.0], color = :red, markersize = 12)
+	scatter!(axA, [-π, π], [0.0, 0.0], color = :green, markersize = 12)
+	limits!(axA, -π, π, -10, 10)
+
+	# --- B: lazo cerrado -------------------------------------------------
+	axB = Axis(fig[1, 2], title = "B · Lazo cerrado (τ = −Kx)", xlabel = "θ [rad]", ylabel = "θ̇ [rad/s]")
+	for θi in range(-0.6, 0.6, length = 5), θdi in (-2.0, 0.0, 2.0)
+		s = solve(ODEProblem(rhs_lag!, [θi, 0.0, θdi, 0.0], (0.0, 3.0), true), Tsit5();
+		          abstol = 1e-9, reltol = 1e-9)
+		lines!(axB, s[1, :], s[3, :], linewidth = 1.5)
+		scatter!(axB, [θi], [θdi], markersize = 7, color = :black)
+	end
+	scatter!(axB, [0.0], [0.0], color = :red, markersize = 12)
+
+	# --- C: espacio de fase Hamiltoniano ---------------------------------
+	axC = Axis(fig[1, 3], title = "C · Hamilton (θ, pθ), pϕ = $(round(pϕ0, digits = 3))",
+	           xlabel = "θ [rad]", ylabel = "pθ [kg·m²/s]")
+	θg = range(-π, π, length = 300)
+	pg = range(pϕ0 - 0.4, pϕ0 + 0.4, length = 300)
+	Z  = [f_H([x, 0.0, y, pϕ0]) for x in θg, y in pg]
+	contour!(axC, θg, pg, Z, levels = 40, colormap = :viridis)
+	contour!(axC, θg, pg, Z, levels = [Mgl + pϕ0^2 / (2 * params[I_w])], color = :red, linewidth = 3)
+
+	fig
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
-ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
-Nemo = "2edaba10-b0f1-5616-af89-8c11ac63239a"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
-Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
-DifferentialEquations = "~8.1.1"
 GLMakie = "~0.13.15"
 Latexify = "~0.16.12"
-ModelingToolkit = "~11.45.2"
-Nemo = "~0.56.1"
+OrdinaryDiffEq = "~7.8.1"
 PlutoUI = "~0.7.83"
 Symbolics = "~7.41.1"
-Unitful = "~1.29.0"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -128,7 +376,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "0eb9a23f0c7caf4f1132e61511a0fea65399fa14"
+project_hash = "56b79c58a8c8b2c7acbd47d433e78f1fb0a66148"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -147,20 +395,6 @@ deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse_jll"]
 git-tree-sha1 = "344f3d221a6bee75925b5c97a30cfd870f12a138"
 uuid = "14f7f29c-3bd6-536c-9a0b-7339e30b5a3e"
 version = "0.5.4"
-
-[[deps.AbstractAlgebra]]
-deps = ["Compat", "LinearAlgebra", "MacroTools", "PrecompileTools", "Preferences", "Random", "RandomExtensions", "SparseArrays"]
-git-tree-sha1 = "f796131c1f3f9521a03b947e231acfff17309fca"
-uuid = "c3fe647b-3220-5bb0-a1ea-a7954cac585d"
-version = "0.50.2"
-
-    [deps.AbstractAlgebra.extensions]
-    IJuliaExt = "IJulia"
-    TestExt = "Test"
-
-    [deps.AbstractAlgebra.weakdeps]
-    IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
-    Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -284,16 +518,6 @@ version = "7.30.2"
     StaticArraysCore = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
-[[deps.ArrayLayouts]]
-deps = ["FillArrays", "LinearAlgebra", "StaticArrays"]
-git-tree-sha1 = "8d6c4d0a4bab1bbd0de2a4b3f525b7584319e0ab"
-uuid = "4c555306-a7a7-4459-81d9-ec55ddd5c99a"
-version = "1.13.0"
-weakdeps = ["SparseArrays"]
-
-    [deps.ArrayLayouts.extensions]
-    ArrayLayoutsSparseArraysExt = "SparseArrays"
-
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
@@ -316,20 +540,6 @@ git-tree-sha1 = "4126b08903b777c88edf1754288144a0492c05ad"
 uuid = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
 version = "0.4.8"
 
-[[deps.BandedMatrices]]
-deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra", "PrecompileTools"]
-git-tree-sha1 = "51d99ba119289fa886610ad81b6f1c15891fc539"
-uuid = "aae01518-5342-5314-be14-df237901396f"
-version = "1.13.0"
-
-    [deps.BandedMatrices.extensions]
-    BandedMatricesSparseArraysExt = "SparseArrays"
-    CliqueTreesExt = "CliqueTrees"
-
-    [deps.BandedMatrices.weakdeps]
-    CliqueTrees = "60701a23-6482-424a-84db-faee86b9b1f8"
-    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
@@ -349,27 +559,6 @@ deps = ["PrecompileTools"]
 git-tree-sha1 = "0adb6d8d0a4bae93a07d79c8d59eaf617f4c59da"
 uuid = "b2a6c25c-c996-4615-94ab-6e519ffb8690"
 version = "1.1.0"
-
-[[deps.BipartiteGraphs]]
-deps = ["DataStructures", "DocStringExtensions", "Graphs", "PrecompileTools"]
-git-tree-sha1 = "ba317c3a2b08853880832d5a034690c2fba539bf"
-uuid = "caf10ac8-0290-4205-88aa-f15908547e8d"
-version = "0.1.14"
-weakdeps = ["SparseArrays"]
-
-    [deps.BipartiteGraphs.extensions]
-    BipartiteGraphsSparseArraysExt = "SparseArrays"
-
-[[deps.BlockArrays]]
-deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra"]
-git-tree-sha1 = "75c9c4d41f387b58ac7ecac17a02062f4cf8e92a"
-uuid = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
-version = "1.10.0"
-weakdeps = ["Adapt", "BandedMatrices"]
-
-    [deps.BlockArrays.extensions]
-    BlockArraysAdaptExt = "Adapt"
-    BlockArraysBandedMatricesExt = "BandedMatrices"
 
 [[deps.BracketingNonlinearSolve]]
 deps = ["CommonSolve", "ConcreteStructs", "NonlinearSolveBase", "PrecompileTools", "Reexport", "SciMLBase", "SciMLLogging"]
@@ -648,18 +837,6 @@ version = "7.21.3"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
-[[deps.DiffEqCallbacks]]
-deps = ["ConcreteStructs", "DataStructures", "DiffEqBase", "DifferentiationInterface", "LinearAlgebra", "Markdown", "PrecompileTools", "RecipesBase", "RecursiveArrayTools", "SciMLBase", "StaticArraysCore"]
-git-tree-sha1 = "74d18419405b8c196f8443aa9be9c6527bd3e6e2"
-uuid = "459566f4-90b8-5000-8ac3-15dfb0a30def"
-version = "4.19.4"
-
-    [deps.DiffEqCallbacks.extensions]
-    DiffEqCallbacksFunctorsExt = "Functors"
-
-    [deps.DiffEqCallbacks.weakdeps]
-    Functors = "d9f16b24-f501-4c13-a1f2-28368ffc5196"
-
 [[deps.DiffResults]]
 deps = ["StaticArraysCore"]
 git-tree-sha1 = "782dd5f4561f5d267313f23853baaaa4c52ea621"
@@ -671,12 +848,6 @@ deps = ["IrrationalConstants", "LogExpFunctions", "NaNMath", "Random", "SpecialF
 git-tree-sha1 = "79a2aca180a85c690c58a020d47b426954b590f8"
 uuid = "b552c78f-8df3-52c6-915a-8e097449b14b"
 version = "1.16.0"
-
-[[deps.DifferentialEquations]]
-deps = ["OrdinaryDiffEq", "PrecompileTools", "Reexport", "SciMLBase"]
-git-tree-sha1 = "d167917674ca92bbf51b56a3e00d019792695110"
-uuid = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
-version = "8.1.1"
 
 [[deps.DifferentiationInterface]]
 deps = ["ADTypes", "LinearAlgebra"]
@@ -842,12 +1013,6 @@ deps = ["AbstractFFTs", "DocStringExtensions", "LinearAlgebra", "MuladdMacro", "
 git-tree-sha1 = "65e55303b72f4a567a51b174dd2c47496efeb95a"
 uuid = "b86e33f2-c0db-4aa1-a6e0-ab43e668529e"
 version = "0.3.1"
-
-[[deps.FLINT_jll]]
-deps = ["Artifacts", "GMP_jll", "JLLWrappers", "Libdl", "MPFR_jll", "OpenBLAS32_jll"]
-git-tree-sha1 = "2e37c236c0c3e714b540ecc6220e547464845349"
-uuid = "e134572f-a0d5-539d-bddf-3cad8db41a82"
-version = "301.600.0+0"
 
 [[deps.FastBroadcast]]
 deps = ["ArrayInterface", "LinearAlgebra", "PrecompileTools"]
@@ -1080,11 +1245,6 @@ git-tree-sha1 = "c910d17acd88889dcac37b3f30a1980556f389be"
 uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 version = "0.13.15"
 
-[[deps.GMP_jll]]
-deps = ["Artifacts", "Libdl"]
-uuid = "781609d7-10c4-51f6-84f2-b8444358ff6d"
-version = "6.3.0+2"
-
 [[deps.GPUArraysCore]]
 deps = ["Adapt"]
 git-tree-sha1 = "0b2b3e8b8fb7c1f5ddbf498be2eb2b3b37c9c0ed"
@@ -1224,12 +1384,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "dcc8d0cd653e55213df9b75ebc6fe4a8d3254c65"
 uuid = "905a6f67-0a94-5f89-b386-d35d92009cd1"
 version = "3.2.2+0"
-
-[[deps.ImplicitDiscreteSolve]]
-deps = ["CommonSolve", "ConcreteStructs", "DiffEqBase", "NonlinearSolveBase", "NonlinearSolveFirstOrder", "OrdinaryDiffEqCore", "Reexport", "SciMLBase", "SymbolicIndexingInterface"]
-git-tree-sha1 = "a796d5bbd868177f97a840742e69061d89993a99"
-uuid = "3263718b-31ed-49cf-8a0f-35a466e8af96"
-version = "2.3.0"
 
 [[deps.IndirectArrays]]
 git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
@@ -1378,23 +1532,6 @@ version = "3.2.0+1"
 deps = ["StyledStrings"]
 uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
-
-[[deps.JumpProcesses]]
-deps = ["ADTypes", "ArrayInterface", "DataStructures", "DiffEqBase", "DiffEqCallbacks", "DocStringExtensions", "FunctionWrappers", "Graphs", "LinearAlgebra", "PoissonRandom", "PrecompileTools", "Random", "RecursiveArrayTools", "SciMLBase", "SimpleNonlinearSolve", "StaticArrays", "SymbolicIndexingInterface"]
-git-tree-sha1 = "0332650de24eab1202f3d509dc2645a21384dd3c"
-uuid = "ccbc3e58-028d-4f4c-8cd5-9ae44345cda5"
-version = "9.33.1"
-
-    [deps.JumpProcesses.extensions]
-    JumpProcessesForwardDiffExt = "ForwardDiff"
-    JumpProcessesKernelAbstractionsExt = ["Adapt", "KernelAbstractions"]
-    JumpProcessesOrdinaryDiffEqCoreExt = "OrdinaryDiffEqCore"
-
-    [deps.JumpProcesses.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-    KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-    OrdinaryDiffEqCore = "bbf590c4-e513-4bbe-9b18-05decba2e5d8"
 
 [[deps.KernelDensity]]
 deps = ["Distributions", "DocStringExtensions", "FFTA", "Interpolations", "StatsBase"]
@@ -1694,11 +1831,6 @@ git-tree-sha1 = "282cadc186e7b2ae0eeadbd7a4dffed4196ae2aa"
 uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
 version = "2025.2.0+0"
 
-[[deps.MPFR_jll]]
-deps = ["Artifacts", "GMP_jll", "Libdl"]
-uuid = "3a97d323-0669-5f0c-9066-3539efd106a3"
-version = "4.2.2+0"
-
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -1758,69 +1890,6 @@ version = "1.2.0"
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 version = "1.11.0"
 
-[[deps.ModelingToolkit]]
-deps = ["ADTypes", "BipartiteGraphs", "BlockArrays", "Combinatorics", "CommonSolve", "ConstructionBase", "DataStructures", "DiffEqBase", "DifferentiationInterface", "DocStringExtensions", "FillArrays", "ForwardDiff", "Graphs", "InteractiveUtils", "Libdl", "LinearAlgebra", "ModelingToolkitBase", "ModelingToolkitTearing", "Moshi", "OffsetArrays", "OrderedCollections", "PreallocationTools", "PrecompileTools", "REPL", "Reexport", "RuntimeGeneratedFunctions", "SCCNonlinearSolve", "SciMLBase", "SciMLPublic", "SciMLStructures", "Serialization", "Setfield", "SimpleNonlinearSolve", "SparseArrays", "StateSelection", "StaticArrays", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TermInterface", "UnPack"]
-git-tree-sha1 = "9195fd4d77088a186eb2b10b3a9b9fbcafab7d2c"
-uuid = "961ee093-0014-501f-94e3-6117800e7a78"
-version = "11.45.2"
-
-    [deps.ModelingToolkit.extensions]
-    MTKFMIExt = "FMIImport"
-    MTKOrdinaryDiffEqBDFExt = "OrdinaryDiffEqBDF"
-    MTKOrdinaryDiffEqDefaultExt = "OrdinaryDiffEqDefault"
-    MTKOrdinaryDiffEqRosenbrockExt = "OrdinaryDiffEqRosenbrock"
-    MTKOrdinaryDiffEqRosenbrockNonlinearSolveExt = ["OrdinaryDiffEqRosenbrock", "OrdinaryDiffEqNonlinearSolve"]
-    MTKOrdinaryDiffEqTsit5Ext = "OrdinaryDiffEqTsit5"
-
-    [deps.ModelingToolkit.weakdeps]
-    FMIImport = "9fcbc62e-52a0-44e9-a616-1359a0008194"
-    OrdinaryDiffEqBDF = "6ad6398a-0878-4a85-9266-38940aa047c8"
-    OrdinaryDiffEqDefault = "50262376-6c5a-4cf5-baba-aaf4f84d72d7"
-    OrdinaryDiffEqNonlinearSolve = "127b3ac7-2247-4354-8eb6-78cf4e7c58e8"
-    OrdinaryDiffEqRosenbrock = "43230ef6-c299-4910-a778-202eb28ce4ce"
-    OrdinaryDiffEqTsit5 = "b1df2697-797e-41e3-8120-5422d3b24e4a"
-
-[[deps.ModelingToolkitBase]]
-deps = ["ADTypes", "AbstractTrees", "ArrayInterface", "BandedMatrices", "BipartiteGraphs", "BlockArrays", "Combinatorics", "CommonSolve", "Compat", "ConstructionBase", "DataStructures", "DiffEqBase", "DiffEqCallbacks", "DiffRules", "DifferentiationInterface", "DocStringExtensions", "DomainSets", "EnumX", "EnzymeCore", "ExprTools", "FillArrays", "ForwardDiff", "FunctionWrappers", "FunctionWrappersWrappers", "Graphs", "ImplicitDiscreteSolve", "InteractiveUtils", "IntervalSets", "JumpProcesses", "Libdl", "LinearAlgebra", "Moshi", "NaNMath", "NonlinearSolveBase", "OffsetArrays", "OrderedCollections", "PreallocationTools", "PrecompileTools", "Printf", "REPL", "Random", "ReadOnlyDicts", "RecursiveArrayTools", "Reexport", "RuntimeGeneratedFunctions", "SCCNonlinearSolve", "SciMLBase", "SciMLPublic", "SciMLStructures", "Serialization", "Setfield", "SimpleNonlinearSolve", "SparseArrays", "SpecialFunctions", "StaticArrays", "StaticArraysCore", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TaskLocalValues", "TermInterface", "UnPack"]
-git-tree-sha1 = "55c7f0e4544409e525dbd83c78e338b119c343e8"
-uuid = "7771a370-6774-4173-bd38-47e70ca0b839"
-version = "1.77.1"
-
-    [deps.ModelingToolkitBase.extensions]
-    MTKBifurcationKitExt = "BifurcationKit"
-    MTKCasADiDynamicOptExt = "CasADi"
-    MTKChainRulesCoreExt = "ChainRulesCore"
-    MTKDiffEqNoiseProcessExt = "DiffEqNoiseProcess"
-    MTKDynamicQuantitiesExt = "DynamicQuantities"
-    MTKInfiniteOptExt = "InfiniteOpt"
-    MTKJuliaFormatterExt = "JuliaFormatter"
-    MTKLabelledArraysExt = "LabelledArrays"
-    MTKLatexifyExt = "Latexify"
-    MTKMooncakeExt = "Mooncake"
-    MTKPyomoDynamicOptExt = ["Pyomo", "PythonCall"]
-    MTKTrackerExt = "Tracker"
-
-    [deps.ModelingToolkitBase.weakdeps]
-    BifurcationKit = "0f109fa4-8a5d-4b75-95aa-f515264e7665"
-    CasADi = "c49709b8-5c63-11e9-2fb2-69db5844192f"
-    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-    DiffEqNoiseProcess = "77a26b50-5914-5dd7-bc55-306e6241c503"
-    DynamicQuantities = "06fc5a27-2a28-4c7c-a15d-362465fb6821"
-    InfiniteOpt = "20393b10-9daf-11e9-18c9-8db751c92c57"
-    JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
-    LabelledArrays = "2ee39098-c373-598a-b85f-a56591580800"
-    Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
-    Mooncake = "da2b9cff-9c12-43a0-ae48-6db2b0edb7d6"
-    Pyomo = "0e8e1daf-01b5-4eba-a626-3897743a3816"
-    PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
-    Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
-
-[[deps.ModelingToolkitTearing]]
-deps = ["BipartiteGraphs", "CommonSolve", "DocStringExtensions", "Graphs", "LinearAlgebra", "ModelingToolkitBase", "Moshi", "OffsetArrays", "OrderedCollections", "SciMLBase", "Setfield", "SparseArrays", "StateSelection", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "UUIDs"]
-git-tree-sha1 = "543a9abbe1dbf6aa27a5cae349df946485399e8d"
-uuid = "6bb917b9-1269-42b9-9f7c-b0dca72083ab"
-version = "1.20.6"
-
 [[deps.ModernGL]]
 deps = ["Libdl"]
 git-tree-sha1 = "ac6cb1d8807a05cf1acc9680e09d2294f9d33956"
@@ -1871,12 +1940,6 @@ deps = ["OpenLibm_jll"]
 git-tree-sha1 = "dbd2e8cd2c1c27f0b584f6661b4309609c5a685e"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.1.4"
-
-[[deps.Nemo]]
-deps = ["AbstractAlgebra", "FLINT_jll", "LinearAlgebra", "Random", "RandomExtensions", "SHA"]
-git-tree-sha1 = "10c4cc66207e5fe215c4fe381d25d1e89269378a"
-uuid = "2edaba10-b0f1-5616-af89-8c11ac63239a"
-version = "0.56.1"
 
 [[deps.Netpbm]]
 deps = ["FileIO", "ImageCore", "ImageMetadata"]
@@ -1998,12 +2061,6 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "b6aa4566bb7ae78498a5e68943863fa8b5231b59"
 uuid = "e7412a2a-1a6e-54c0-be00-318e2571c051"
 version = "1.3.6+0"
-
-[[deps.OpenBLAS32_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "libblastrampoline_jll"]
-git-tree-sha1 = "30870d0f2dc0b2dba76b10df1c58c7f018413e56"
-uuid = "656ef2d0-ae68-5445-9ca0-591084a874a2"
-version = "0.3.34+0"
 
 [[deps.OpenBLASConsistentFPCSR_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
@@ -2212,12 +2269,6 @@ git-tree-sha1 = "e189d0623e7ce9c37389bac17e80aac3b0302e75"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 version = "0.7.83"
 
-[[deps.PoissonRandom]]
-deps = ["LogExpFunctions", "PrecompileTools", "Random"]
-git-tree-sha1 = "faa278c0dc901606775554f6171350ad962d0e18"
-uuid = "e409e4f3-bfea-5376-8464-e040bb5c01ab"
-version = "0.4.13"
-
 [[deps.PolygonOps]]
 git-tree-sha1 = "77b3d3605fc1cd0b42d95eba87dfcd2bf67d5ff6"
 uuid = "647866c9-e3ac-4575-94e7-e3d426903924"
@@ -2327,12 +2378,6 @@ deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 version = "1.11.0"
 
-[[deps.RandomExtensions]]
-deps = ["Random", "SparseArrays"]
-git-tree-sha1 = "b8a399e95663485820000f26b6a43c794e166a49"
-uuid = "fb686558-2515-59ef-acaa-46db3789a887"
-version = "0.4.4"
-
 [[deps.RangeArrays]]
 git-tree-sha1 = "b9039e93773ddcfc828f12aadf7115b4b4d225f5"
 uuid = "b3c3ace0-ae52-54e7-9d0b-2c1406fd6b9d"
@@ -2352,12 +2397,6 @@ weakdeps = ["FixedPointNumbers"]
 git-tree-sha1 = "e6f7ddf48cf141cb312b078ca21cb2d29d0dc11d"
 uuid = "988b38a3-91fc-5605-94a2-ee2116b3bd83"
 version = "0.2.0"
-
-[[deps.ReadOnlyDicts]]
-deps = ["DocStringExtensions"]
-git-tree-sha1 = "711acef70140078d808be9cd33040f510af57f5e"
-uuid = "795d4caa-f5a7-4580-b5d8-c01d53451803"
-version = "1.0.1"
 
 [[deps.RecipesBase]]
 deps = ["PrecompileTools"]
@@ -2472,16 +2511,6 @@ deps = ["ExprTools", "PrecompileTools", "SHA", "Serialization"]
 git-tree-sha1 = "9bb075002b40849582905394bb3031fb77aa102d"
 uuid = "7e49a35a-f44a-4d26-94aa-eba1b4ca6b47"
 version = "0.5.27"
-
-[[deps.SCCNonlinearSolve]]
-deps = ["CommonSolve", "NonlinearSolveBase", "PrecompileTools", "SciMLBase", "SymbolicIndexingInterface"]
-git-tree-sha1 = "e155d8404ecf51d3333c1ae8530018966a372827"
-uuid = "9dfe8606-65a1-4bb3-9748-cb89d1561431"
-version = "1.15.4"
-weakdeps = ["ChainRulesCore"]
-
-    [deps.SCCNonlinearSolve.extensions]
-    SCCNonlinearSolveChainRulesCoreExt = "ChainRulesCore"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"
@@ -2724,18 +2753,6 @@ deps = ["LinearAlgebra", "MutableArithmetics", "SparseArrays"]
 git-tree-sha1 = "235b1f9d287bbf34083b3d0829343a7942c0ad1c"
 uuid = "0c0c59c1-dc5f-42e9-9a8b-b5dc384a6cd1"
 version = "0.3.0"
-
-[[deps.StateSelection]]
-deps = ["BipartiteGraphs", "DocStringExtensions", "FindFirstFunctions", "Graphs", "LinearAlgebra", "OrderedCollections", "Setfield", "SparseArrays"]
-git-tree-sha1 = "10914498005246949b0474ad26a650570e08948b"
-uuid = "64909d44-ed92-46a8-bbd9-f047dfbdc84b"
-version = "1.11.1"
-
-    [deps.StateSelection.extensions]
-    StateSelectionDeepDiffsExt = "DeepDiffs"
-
-    [deps.StateSelection.weakdeps]
-    DeepDiffs = "ab62b9b5-e342-54a8-a765-a90f495de1a6"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
@@ -3000,11 +3017,6 @@ version = "1.7.0"
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 version = "1.11.0"
-
-[[deps.UnPack]]
-git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
-uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
-version = "1.0.2"
 
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
@@ -3274,25 +3286,41 @@ version = "1.13.0+0"
 """
 
 # ╔═╡ Cell order:
-# ╟─45c3a5e9-32ee-438f-ab3f-c6c7a17832b8
-# ╠═5313362e-3ccd-41bf-9039-64dcf620062d
-# ╠═91121ec6-93a2-47dc-bc6f-5af84dcef3a0
-# ╠═5c367436-3b4e-4cf9-b3ab-51aff3911925
-# ╟─4f09226e-d295-4821-b64a-ff3c348c7c89
-# ╟─0ddbc496-6c4b-4f5c-865e-ba04c95c9486
-# ╠═7bce4515-1570-4365-8921-dcf76e14b8c8
-# ╟─deed1815-9d9c-4297-9960-308b6b251cf8
-# ╠═44892d72-4c9f-48ea-ae39-0ed9ac7f1d12
-# ╠═ffce79ac-491b-45e7-b58f-15407113b2ec
-# ╠═64252903-b282-4f38-8e80-fd85e1bba53a
-# ╠═a17d113b-fcd4-4d9a-8f31-905c07ea9a7b
-# ╟─aac92d77-96d9-49a6-8ca3-4bc43417bcf0
-# ╠═c525b07e-a58a-469e-9ed6-19e009455389
-# ╠═a7d27253-047f-4de3-a677-805a9cd05316
-# ╠═8db0e249-084f-4cff-ad97-5afb2931f5d3
-# ╠═16664cd6-8d52-4160-a15c-efadf0b214cc
-# ╠═0d80a7f5-bd7d-4580-ad5f-05061bd1daeb
-# ╠═1c518b48-85f2-4fdc-ba62-7eea4671fc36
-# ╠═35a76c59-e30b-4dd3-88f3-0bfec622960f
+# ╟─6a1f0c00-0000-4000-8000-000000000001
+# ╠═6a1f0c00-0000-4000-8000-000000000003
+# ╠═6a1f0c00-0000-4000-8000-000000000004
+# ╠═6a1f0c00-0000-4000-8000-000000000005
+# ╟─6a1f0c00-0000-4000-8000-000000000006
+# ╠═6a1f0c00-0000-4000-8000-000000000007
+# ╠═6a1f0c00-0000-4000-8000-000000000008
+# ╟─6a1f0c00-0000-4000-8000-000000000010
+# ╟─dc2f6187-6ec4-4a3a-8ecf-ba4a7732b746
+# ╠═6a1f0c00-0000-4000-8000-000000000011
+# ╠═6a1f0c00-0000-4000-8000-000000000012
+# ╠═6a1f0c00-0000-4000-8000-000000000013
+# ╠═6a1f0c00-0000-4000-8000-000000000014
+# ╟─6a1f0c00-0000-4000-8000-000000000015
+# ╠═fa8f6b56-1de1-41be-96c5-245e7e1a6385
+# ╠═6a1f0c00-0000-4000-8000-000000000016
+# ╠═6a1f0c00-0000-4000-8000-000000000017
+# ╟─6a1f0c00-0000-4000-8000-000000000020
+# ╠═6a1f0c00-0000-4000-8000-000000000021
+# ╠═6a1f0c00-0000-4000-8000-000000000022
+# ╟─6a1f0c00-0000-4000-8000-000000000025
+# ╠═6a1f0c00-0000-4000-8000-000000000026
+# ╟─6a1f0c00-0000-4000-8000-000000000027
+# ╠═6a1f0c00-0000-4000-8000-000000000028
+# ╟─6a1f0c00-0000-4000-8000-000000000029
+# ╠═c8f1197f-0b88-4b9e-93c7-1b469cd844aa
+# ╠═6a1f0c00-0000-4000-8000-000000000030
+# ╠═6a1f0c00-0000-4000-8000-000000000031
+# ╟─6a1f0c00-0000-4000-8000-000000000032
+# ╠═6a1f0c00-0000-4000-8000-000000000033
+# ╟─6a1f0c00-0000-4000-8000-000000000034
+# ╠═6a1f0c00-0000-4000-8000-000000000035
+# ╟─6a1f0c00-0000-4000-8000-000000000036
+# ╠═6a1f0c00-0000-4000-8000-000000000037
+# ╟─6a1f0c00-0000-4000-8000-000000000038
+# ╠═6a1f0c00-0000-4000-8000-000000000039
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
