@@ -143,7 +143,7 @@ begin
 	Mq = [Mq11 Mq12; Mq21 Mq22]
 
 	# Gq - Gravitacional
-	Gq11 = -M * g * L_b * sin(θ)
+	Gq11 = -M * g^2 * L_b * sin(θ)
 	Gq21 = Num(0)
 	Gq = [Gq11; Gq21]
 

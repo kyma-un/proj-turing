@@ -1,4 +1,5 @@
 %% Configuracion del modelo 
+clc; clear; close all; 
 
 g = 9.81; % [m/s^2]
 
@@ -20,10 +21,12 @@ M = m_w + 1/2 * m_b; % Masa efectiva potencial
 I_t = I_b + I_w + l_b^2 * m_b; 
 
 % Valores iniciales 
-theta0 = pi/2; 
+theta0 = pi/2 + pi/4; 
 phi0 = 0; 
 dtheta0 = 0;
 dphi0 = 0; 
+
+beta = 0.01; 
 
 % Viscosidad 
 
