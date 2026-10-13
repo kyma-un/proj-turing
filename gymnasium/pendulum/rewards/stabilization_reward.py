@@ -17,7 +17,7 @@ class StabilizationReward(RewardFunction):
         state: np.ndarray,
         action: np.ndarray,
     ) -> float:
-        theta, theta_dot = state
+        theta, theta_dot = state[:2]
         torque = action[0]
         
         # Recompensa basada en la desviación del ángulo y la velocidad angular
@@ -27,6 +27,6 @@ class StabilizationReward(RewardFunction):
             + self.torque_weight * (torque ** 2) # Penaliza el uso de torque excesivo
         )
 
-        print("theta",theta**2, "reward", reward )
+        # print("theta",theta**2, "reward", reward )
         
         return reward

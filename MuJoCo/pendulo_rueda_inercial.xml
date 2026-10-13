@@ -27,11 +27,11 @@
       <joint name="pendulo_joint" type="hinge" axis="0 1 0" pos="0 0 0"/>
 
       <!-- Barra: del pivote (0,0,0) hacia abajo, longitud 0.30 m -->
-      <geom name="barra" type="capsule" fromto="0 0 0 0 0 -0.30" size="0.012"
+      <geom name="barra" type="capsule" fromto="0 0 0 0 0 0.30" size="0.012"
             mass="0.25" rgba="255 0 0 1" contype="0" conaffinity="0"/>
 
       <!-- Rueda inercial en la punta del brazo -->
-      <body name="rueda" pos="0 0 -0.30">
+      <body name="rueda" pos="0 0 0.30">
         <joint name="rueda_joint" type="hinge" axis="0 1 0" pos="0 0 0"/>
         <!-- Disco delgado; su eje de simetria coincide con el eje de giro (Y) -->
         <geom name="disco" type="cylinder" fromto="0 -0.014 0 0 0.014 0"

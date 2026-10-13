@@ -53,15 +53,18 @@ import numpy as np
 
 from plants.simulation.pendulum_plant import PendulumPlant
 from rewards.stabilization_reward import StabilizationReward
-from renderers.pygame_renderer import PygameRenderer
+# from renderers.pygame_renderer import PygameRenderer
 from environments.environment_adapter import GymEnvironmentAdapter
 
 from gymnasium.utils.env_checker import check_env
 
+from plants.simulation.mujoco_plant import MujocoPlant
+from renderers.mujoco_renderer import MujocoRenderer
+
 def main():
-    plant = PendulumPlant()
+    plant = MujocoPlant()
     reward_function = StabilizationReward()
-    renderer = PygameRenderer()
+    renderer = MujocoRenderer(plant)
 
     env = GymEnvironmentAdapter(plant, reward_function, renderer)
 

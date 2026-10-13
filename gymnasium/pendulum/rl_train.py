@@ -2,7 +2,7 @@ import numpy as np
 
 from plants.simulation.pendulum_plant import PendulumPlant
 from rewards.stabilization_reward import StabilizationReward
-from renderers.pygame_renderer import PygameRenderer
+# from renderers.pygame_renderer import PygameRenderer
 from environments.environment_adapter import GymEnvironmentAdapter
 
 from stable_baselines3 import PPO
@@ -11,7 +11,7 @@ from gymnasium.utils.env_checker import check_env
 def main():
     plant = PendulumPlant()
     reward_function = StabilizationReward()
-    renderer = PygameRenderer()
+    renderer =  None
 
     env = GymEnvironmentAdapter(plant, reward_function, renderer)
     check_env(env)
